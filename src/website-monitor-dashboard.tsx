@@ -11,6 +11,7 @@ interface CheckRecord {
   status: 'online' | 'offline';
   responseTime: number;
 }
+
 interface Website {
   id: number;
   url: string;
@@ -21,6 +22,7 @@ interface Website {
   uptime: number;
   category: string;
   isPaused: boolean;
+
   error?: string;
 }
 
@@ -133,6 +135,7 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
         };
     }
 };
+
 
 
   // Función para verificar todos los sitios web
@@ -528,6 +531,7 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
                           </ResponsiveContainer>
                         </div>
                       )}
+
                     </div>
                   );
                 })}
