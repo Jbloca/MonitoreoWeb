@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/MonitoreoWeb/static/css/main.c76ec752.css",
-    "main.js": "/MonitoreoWeb/static/js/main.43a4be29.js",
+    "main.js": "/MonitoreoWeb/static/js/main.c8f5ba7f.js",
     "static/js/453.d743d60d.chunk.js": "/MonitoreoWeb/static/js/453.d743d60d.chunk.js",
     "index.html": "/MonitoreoWeb/index.html",
     "main.c76ec752.css.map": "/MonitoreoWeb/static/css/main.c76ec752.css.map",
-    "main.43a4be29.js.map": "/MonitoreoWeb/static/js/main.43a4be29.js.map",
+    "main.c8f5ba7f.js.map": "/MonitoreoWeb/static/js/main.c8f5ba7f.js.map",
     "453.d743d60d.chunk.js.map": "/MonitoreoWeb/static/js/453.d743d60d.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.c76ec752.css",
-    "static/js/main.43a4be29.js"
+    "static/js/main.c8f5ba7f.js"
   ]
 }
