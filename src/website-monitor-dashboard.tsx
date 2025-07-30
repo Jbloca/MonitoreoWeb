@@ -2,14 +2,34 @@ import { AlertCircle, Bell, CheckCircle, Clock, Globe, Plus, RefreshCw, Trash2 }
 import { useCallback, useEffect, useState } from 'react';
 import './website-monitor-dashboard.css';
 
-const defaultWebsites = [
+// Type definitions for better code quality and safety
+interface Website {
+  id: number;
+  url: string;
+  name: string;
+  status: 'online' | 'offline' | 'unknown';
+  responseTime: number;
+  lastCheck: string | null;
+  uptime: number;
+  category: string;
+  error?: string;
+}
+
+interface Alert {
+  id: number;
+  message: string;
+  timestamp: string;
+  type: 'success' | 'error';
+}
+
+const defaultWebsites: Website[] = [
   { id: 1, url: 'https://intercertacademy.com/', name: 'INTERCERT ACADEMY', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'INTERCERT' },
   { id: 2, url: 'https://www.intercert.com.pe/', name: 'INTERCERT.PE', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'clientes' },
   { id: 3, url: 'https://cliente2.com', name: 'Cliente Demo 2', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'clientes' }
 ];
 
 const WebsiteMonitor = () => {
-  const [websites, setWebsites] = useState(() => {
+  const [websites, setWebsites] = useState<Website[]>(() => {
     const saved = localStorage.getItem('websites');
     return saved ? JSON.parse(saved) : defaultWebsites;
   });
@@ -18,14 +38,14 @@ const WebsiteMonitor = () => {
   const [newCategory, setNewCategory] = useState('INTERCERT');
   const [activeTab, setActiveTab] = useState('INTERCERT');
   const [isChecking, setIsChecking] = useState(false);
-  const [alerts, setAlerts] = useState([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [checkInterval, setCheckInterval] = useState(30); // segundos
 
   useEffect(() => {
     localStorage.setItem('websites', JSON.stringify(websites));
   }, [websites]);
   // Función para verificar el estado de una página
-const checkWebsite = async (website) => {
+const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
     try {
         const startTime = Date.now();
         // Usando un proxy CORS para evitar problemas de CORS en el navegador.
@@ -47,12 +67,17 @@ const checkWebsite = async (website) => {
 
         const data = await response.json();
 
-        // Comprobamos el estado HTTP retornado por el proxy para el sitio de destino.
-        // Un http_code 0 o >= 400 usualmente indica un problema.
+        // Si el sitio de destino devuelve un código de éxito (2xx o 3xx)
         if (data.status && data.status.http_code >= 200 && data.status.http_code < 400) {
-            // NUEVO: Verificar si la URL final es una página de suspensión.
-            const finalUrl = data.status.url || '';
-            if (finalUrl.includes('suspendedpage.cgi')) {
+            const finalUrl = (data.status.url || '').toLowerCase();
+            const pageContent = (data.contents || '').toLowerCase();
+
+            // Verificación más robusta para páginas de suspensión por URL o contenido
+            if (
+                finalUrl.includes('suspendedpage.cgi') ||
+                pageContent.includes('account suspended') ||
+                pageContent.includes('this account has been suspended')
+            ) {
                 return {
                     status: 'offline',
                     responseTime: 0,
@@ -64,7 +89,8 @@ const checkWebsite = async (website) => {
             return {
                 status: 'online',
                 responseTime: responseTime,
-                lastCheck: new Date().toISOString()
+                lastCheck: new Date().toISOString(),
+                error: undefined
             };
         } else {
             // El sitio de destino está caído o devolvió un código de error.
@@ -72,16 +98,16 @@ const checkWebsite = async (website) => {
                 status: 'offline',
                 responseTime: 0,
                 lastCheck: new Date().toISOString(),
-                error: data.status.error || `HTTP ${data.status.http_code}`
+                error: data.status.error || `Error HTTP ${data.status.http_code || 'desconocido'}`
             };
         }
-    } catch (error) {
+    } catch (error: any) {
         // Esto captura errores de red (ej. el proxy no es accesible) o errores de parseo del JSON.
         return {
             status: 'offline',
             responseTime: 0,
             lastCheck: new Date().toISOString(),
-            error: error.message
+            error: error.message || 'Error de red'
         };
     }
 };
@@ -92,11 +118,11 @@ const checkWebsite = async (website) => {
     if (websites.length === 0) return;
     
     setIsChecking(true);
-    const updatedWebsites = [];
+    const updatedWebsites: Website[] = [];
     
     for (const website of websites) {
       const result = await checkWebsite(website);
-      const updatedWebsite = {
+      const updatedWebsite: Website = {
         ...website,
         ...result,
         uptime: result.status === 'online' ? 
@@ -106,18 +132,18 @@ const checkWebsite = async (website) => {
       
       // Generar alerta si el sitio se cayó
       if (website.status === 'online' && result.status === 'offline') {
-        const alert = {
+        const alert: Alert = {
           id: Date.now(),
           message: `🚨 ${website.name} (${website.url}) está OFFLINE`,
           timestamp: new Date().toLocaleString(),
           type: 'error'
         };
-        setAlerts(prev => [alert, ...prev.slice(0, 9)]); // Mantener solo 10 alertas
+        setAlerts(prev => [alert, ...prev.slice(0, 9)]);
         
         // Mostrar notificación del navegador si está permitido
         if (Notification.permission === 'granted') {
           new Notification(`Sitio Caído: ${website.name}`, {
-            body: `${website.url} no está respondiendo`,
+            body: `${website.url} no está respondiendo. Causa: ${result.error}`,
             icon: '🚨'
           });
         }
@@ -125,7 +151,7 @@ const checkWebsite = async (website) => {
       
       // Alerta de recuperación
       if (website.status === 'offline' && result.status === 'online') {
-        const alert = {
+        const alert: Alert = {
           id: Date.now(),
           message: `✅ ${website.name} (${website.url}) está de vuelta ONLINE`,
           timestamp: new Date().toLocaleString(),
