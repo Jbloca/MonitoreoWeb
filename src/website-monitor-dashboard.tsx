@@ -52,7 +52,17 @@ const defaultWebsites: Website[] = [
 const WebsiteMonitor = () => {
   const [websites, setWebsites] = useState<Website[]>(() => {
     const saved = localStorage.getItem('websites');
-    return saved ? JSON.parse(saved) : defaultWebsites;
+        if (saved) {
+      const parsedWebsites: Website[] = JSON.parse(saved);
+      // Data migration: Ensure every website object has the necessary properties.
+      // This prevents errors when loading data from a previous version of the app.
+      return parsedWebsites.map(website => ({
+        ...website,
+        history: website.history || [],
+        isPaused: website.isPaused || false,
+      }));
+    }
+    return defaultWebsites;
   });
   const [newUrl, setNewUrl] = useState('');
   const [newName, setNewName] = useState('');
