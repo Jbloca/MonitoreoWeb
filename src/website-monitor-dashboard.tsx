@@ -25,34 +25,67 @@ const WebsiteMonitor = () => {
     localStorage.setItem('websites', JSON.stringify(websites));
   }, [websites]);
   // Función para verificar el estado de una página
-  const checkWebsite = async (website) => {
+const checkWebsite = async (website) => {
     try {
-      const startTime = Date.now();
-      const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(website.url)}`);
-      const endTime = Date.now();
-      const responseTime = endTime - startTime;
-      
-      if (response.ok) {
-        return {
-          status: 'online',
-          responseTime,
-          lastCheck: new Date().toISOString()
-        };
-      } else {
-        return {
-          status: 'offline',
-          responseTime: 0,
-          lastCheck: new Date().toISOString()
-        };
-      }
+        const startTime = Date.now();
+        // Usando un proxy CORS para evitar problemas de CORS en el navegador.
+        // Nota: La fiabilidad de esta comprobación depende de la disponibilidad del proxy.
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(website.url)}`;
+        const response = await fetch(proxyUrl);
+        const endTime = Date.now();
+        const responseTime = endTime - startTime;
+
+        if (!response.ok) {
+            // Esto comprueba si el propio proxy está caído o ha devuelto un error.
+            return {
+                status: 'offline',
+                responseTime: 0,
+                lastCheck: new Date().toISOString(),
+                error: `Error del proxy: ${response.statusText}`
+            };
+        }
+
+        const data = await response.json();
+
+        // Comprobamos el estado HTTP retornado por el proxy para el sitio de destino.
+        // Un http_code 0 o >= 400 usualmente indica un problema.
+        if (data.status && data.status.http_code >= 200 && data.status.http_code < 400) {
+            // NUEVO: Verificar si la URL final es una página de suspensión.
+            const finalUrl = data.status.url || '';
+            if (finalUrl.includes('suspendedpage.cgi')) {
+                return {
+                    status: 'offline',
+                    responseTime: 0,
+                    lastCheck: new Date().toISOString(),
+                    error: 'Cuenta de hosting suspendida'
+                };
+            }
+
+            return {
+                status: 'online',
+                responseTime: responseTime,
+                lastCheck: new Date().toISOString()
+            };
+        } else {
+            // El sitio de destino está caído o devolvió un código de error.
+            return {
+                status: 'offline',
+                responseTime: 0,
+                lastCheck: new Date().toISOString(),
+                error: data.status.error || `HTTP ${data.status.http_code}`
+            };
+        }
     } catch (error) {
-      return {
-        status: 'offline',
-        responseTime: 0,
-        lastCheck: new Date().toISOString()
-      };
+        // Esto captura errores de red (ej. el proxy no es accesible) o errores de parseo del JSON.
+        return {
+            status: 'offline',
+            responseTime: 0,
+            lastCheck: new Date().toISOString(),
+            error: error.message
+        };
     }
-  };
+};
+
 
   // Función para verificar todos los sitios web
   const checkAllWebsites = useCallback(async () => {
@@ -326,6 +359,11 @@ const WebsiteMonitor = () => {
                         {website.lastCheck && (
                           <div className="text-xs text-gray-500">
                             Último check: {new Date(website.lastCheck).toLocaleString()}
+                          </div>
+                        )}
+                        {website.status === 'offline' && website.error && (
+                          <div className="text-xs text-red-600 mt-1" title={website.error}>
+                            Error: {website.error.substring(0, 30)}{website.error.length > 30 ? '...' : ''}
                           </div>
                         )}
                       </div>
