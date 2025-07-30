@@ -1,8 +1,16 @@
-import { AlertCircle, Bell, CheckCircle, Clock, Globe, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertCircle, Bell, CheckCircle, Clock, Edit, Globe, Pause, Play, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+// NUEVO: Importamos componentes para las gráficas
+import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 import './website-monitor-dashboard.css';
 
 // Type definitions for better code quality and safety
+// NUEVO: Añadimos un historial a cada sitio web
+interface CheckRecord {
+  timestamp: string;
+  status: 'online' | 'offline';
+  responseTime: number;
+}
 interface Website {
   id: number;
   url: string;
@@ -12,6 +20,7 @@ interface Website {
   lastCheck: string | null;
   uptime: number;
   category: string;
+  isPaused: boolean;
   error?: string;
 }
 
@@ -22,10 +31,20 @@ interface Alert {
   type: 'success' | 'error';
 }
 
+// NUEVO: Paleta de colores para las gráficas
+const chartColors = [
+  { stroke: '#2563eb', fill: '#bfdbfe' }, // Blue
+  { stroke: '#059669', fill: '#dcfce7' }, // Green
+  { stroke: '#c026d3', fill: '#f5d0fe' }, // Fuchsia
+  { stroke: '#ea580c', fill: '#ffedd5' }, // Orange
+  { stroke: '#6d28d9', fill: '#ede9fe' }, // Violet
+  { stroke: '#db2777', fill: '#fce7f3' }, // Pink
+];
+
 const defaultWebsites: Website[] = [
-  { id: 1, url: 'https://intercertacademy.com/', name: 'INTERCERT ACADEMY', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'INTERCERT' },
-  { id: 2, url: 'https://www.intercert.com.pe/', name: 'INTERCERT.PE', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'clientes' },
-  { id: 3, url: 'https://cliente2.com', name: 'Cliente Demo 2', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'clientes' }
+  { id: 1, url: 'https://intercertacademy.com/', name: 'INTERCERT ACADEMY', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'INTERCERT', history: [], isPaused: false },
+  { id: 2, url: 'https://www.intercert.com.pe/', name: 'INTERCERT.PE', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'clientes', history: [], isPaused: false },
+  { id: 3, url: 'https://cliente2.com', name: 'Cliente Demo 2', status: 'unknown', responseTime: 0, lastCheck: null, uptime: 100, category: 'clientes', history: [], isPaused: false }
 ];
 
 const WebsiteMonitor = () => {
@@ -39,6 +58,9 @@ const WebsiteMonitor = () => {
   const [activeTab, setActiveTab] = useState('INTERCERT');
   const [isChecking, setIsChecking] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  // NUEVO: Estado para manejar la edición
+  const [editingWebsiteId, setEditingWebsiteId] = useState<number | null>(null);
+
   const [checkInterval, setCheckInterval] = useState(30); // segundos
 
   useEffect(() => {
@@ -121,13 +143,28 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
     const updatedWebsites: Website[] = [];
     
     for (const website of websites) {
+      // NUEVO: Si el sitio está pausado, lo saltamos y mantenemos su estado actual.
+      if (website.isPaused) {
+        updatedWebsites.push(website);
+        continue;
+      }
+
       const result = await checkWebsite(website);
+      // NUEVO: Creamos un registro del historial y lo guardamos
+      const newHistoryRecord: CheckRecord = {
+        timestamp: new Date().toISOString(),
+        status: result.status || 'offline',
+        responseTime: result.responseTime || 0,
+      };
+      const newHistory = [...(website.history || []), newHistoryRecord].slice(-50); // Guardar los últimos 50 registros
+
       const updatedWebsite: Website = {
         ...website,
         ...result,
         uptime: result.status === 'online' ? 
           Math.min(100, website.uptime + 0.1) : 
-          Math.max(0, website.uptime - 5)
+          Math.max(0, website.uptime - 5),
+        history: newHistory,
       };
       
       // Generar alerta si el sitio se cayó
@@ -165,7 +202,7 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
     
     setWebsites(updatedWebsites);
     setIsChecking(false);
-  }, [websites]);
+  }, [websites]); // Quitamos la dependencia de 'alerts' para evitar ciclos
 
   // Solicitar permisos de notificación
   useEffect(() => {
@@ -195,7 +232,9 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
         responseTime: 0,
         lastCheck: null,
         uptime: 100,
-        category: newCategory
+        category: newCategory,
+        history: [],
+        isPaused: false,
       };
       setWebsites([...websites, newWebsite]);
       setNewUrl('');
@@ -207,15 +246,39 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
     setWebsites(websites.filter(w => w.id !== id));
   };
 
-  const getStatusColor = (status) => {
+  // NUEVO: Función para guardar los cambios de un sitio editado
+  const handleUpdateWebsite = (id: number, updatedData: Partial<Website>) => {
+    setWebsites(websites.map(w => w.id === id ? { ...w, ...updatedData } : w));
+    setEditingWebsiteId(null); // Salir del modo edición
+  };
+
+  // NUEVO: Función para entrar en modo edición
+  const handleEditWebsite = (website: Website) => {
+    setEditingWebsiteId(website.id);
+  };
+
+  // NUEVO: Función para pausar o reanudar el monitoreo de un sitio
+  const togglePauseWebsite = (id: number) => {
+    setWebsites(websites.map(w => {
+      if (w.id === id) {
+        const isNowPaused = !w.isPaused;
+        // Si se reanuda, se marca como 'unknown' para forzar una nueva verificación visual.
+        return { ...w, isPaused: isNowPaused, status: isNowPaused ? w.status : 'unknown' };
+      }
+      return w;
+    }));
+  };
+
+  const getStatusColor = (status, isPaused) => {
+    if (isPaused) return 'text-gray-500 bg-gray-200';
     switch (status) {
       case 'online': return 'text-green-600 bg-green-100';
       case 'offline': return 'text-red-600 bg-red-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
-
-  const getStatusIcon = (status) => {
+  const getStatusIcon = (status, isPaused) => {
+    if (isPaused) return <Pause className="w-5 h-5" />;
     switch (status) {
       case 'online': return <CheckCircle className="w-5 h-5" />;
       case 'offline': return <AlertCircle className="w-5 h-5" />;
@@ -240,6 +303,7 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
 
   const currentStats = getStatsForCategory(activeTab);
 
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
@@ -248,7 +312,7 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Globe className="w-8 h-8 text-blue-600" />
-              <h1 className="text-3xl font-bold text-gray-900">Monitor de Páginas Web</h1>
+              <h1 className="text-3xl font-bold text-gray-900">Monitor de Web</h1>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -372,49 +436,101 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
               </div>
 
               {/* Lista de sitios */}
-              <div className="divide-y">
-                {filteredWebsites.map((website) => (
-                  <div key={website.id} className="p-6 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-2 rounded-full ${getStatusColor(website.status)}`}>
-                        {getStatusIcon(website.status)}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-gray-900">{website.name}</div>
-                        <div className="text-sm text-gray-600">{website.url}</div>
-                        {website.lastCheck && (
-                          <div className="text-xs text-gray-500">
-                            Último check: {new Date(website.lastCheck).toLocaleString()}
+              <div className="space-y-4 p-6">
+                {filteredWebsites.map((website, index) => {
+                  const color = chartColors[index % chartColors.length];
+                  const chartData = website.history.map(h => ({
+                    time: new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    'ms': h.responseTime > 0 ? h.responseTime : null, // No mostrar 0 en la gráfica
+                  }));
+
+                  // NUEVO: Renderizado condicional para el modo de edición
+                  if (editingWebsiteId === website.id) {
+                    return <EditWebsiteForm 
+                              key={website.id} 
+                              website={website} 
+                              onSave={handleUpdateWebsite} 
+                              onCancel={() => setEditingWebsiteId(null)} 
+                           />;
+                  }
+
+                  return (
+                    <div key={website.id} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                      <div className="p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`p-2 rounded-full ${getStatusColor(website.status, website.isPaused)}`}>
+                            {getStatusIcon(website.status, website.isPaused)}
                           </div>
-                        )}
-                        {website.status === 'offline' && website.error && (
-                          <div className="text-xs text-red-600 mt-1" title={website.error}>
-                            Error: {website.error.substring(0, 30)}{website.error.length > 30 ? '...' : ''}
+                          <div>
+                            <div className="font-semibold text-gray-900">{website.name}</div>
+                            <div className="text-sm text-gray-600">{website.url}</div>
+                            {website.lastCheck && (
+                              <div className="text-xs text-gray-500">
+                                Último check: {new Date(website.lastCheck).toLocaleString()}
+                              </div>
+                            )}
+                            {website.isPaused && (
+                              <div className="text-xs text-yellow-700 font-medium mt-1">
+                                Monitoreo pausado
+                              </div>
+                            )}
+                            {website.status === 'offline' && website.error && (
+                              <div className="text-xs text-red-600 mt-1" title={website.error}>
+                                Error: {website.error.substring(0, 30)}{website.error.length > 30 ? '...' : ''}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="text-sm font-medium text-gray-900">
-                          Uptime: {Math.round(website.uptime)}%
                         </div>
-                        {website.responseTime > 0 && (
-                          <div className="text-xs text-gray-600">
-                            {website.responseTime}ms
+                        
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <div className="text-sm font-medium text-gray-900">
+                              Uptime: {Math.round(website.uptime)}%
+                            </div>
+                            {website.responseTime > 0 && (
+                              <div className="text-xs text-gray-600">
+                                {website.responseTime}ms
+                              </div>
+                            )}
                           </div>
-                        )}
+                          {/* NUEVO: Botones de Editar y Borrar */}
+                          <div className="flex flex-col">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleEditWebsite(website); }}
+                              className="text-gray-400 hover:text-blue-600 p-1"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); togglePauseWebsite(website.id); }}
+                              className="text-gray-400 hover:text-yellow-600 p-1"
+                            >
+                              {website.isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); removeWebsite(website.id); }}
+                              className="text-gray-400 hover:text-red-600 p-1"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => removeWebsite(website.id)}
-                        className="text-red-600 hover:text-red-800 p-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Gráfica integrada */}
+                      {website.history && website.history.length > 1 && (
+                        <div className="bg-gray-50" style={{ height: '120px' }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                              <Tooltip contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '0.5rem' }} />
+                              <YAxis hide={true} domain={['dataMin - 100', 'dataMax + 100']} />
+                              <Area type="monotone" dataKey="ms" stroke={color.stroke} fill={color.fill} strokeWidth={2} connectNulls />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 
                 {filteredWebsites.length === 0 && (
                   <div className="p-12 text-center text-gray-500">
@@ -464,14 +580,60 @@ const checkWebsite = async (website: Website): Promise<Partial<Website>> => {
             <div className="bg-blue-50 rounded-lg p-4 mt-6">
               <h3 className="font-semibold text-blue-900 mb-2">💡 Consejos:</h3>
               <ul className="text-sm text-blue-800 space-y-1">
+                <li>• Haz clic en el ✏️ para editar un sitio existente.</li>
                 <li>• Las notificaciones del navegador te alertarán cuando un sitio se caiga</li>
                 <li>• El uptime se calcula basado en las verificaciones exitosas</li>
                 <li>• Ajusta el intervalo según tus necesidades de monitoreo</li>
-                <li>• Usa las pestañas para separar sitios de INTERCERT y clientes</li>
               </ul>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// NUEVO: Componente para el formulario de edición
+const EditWebsiteForm = ({ website, onSave, onCancel }: { website: Website, onSave: (id: number, data: Partial<Website>) => void, onCancel: () => void }) => {
+  const [name, setName] = useState(website.name);
+  const [url, setUrl] = useState(website.url);
+  const [category, setCategory] = useState(website.category);
+
+  const handleSave = () => {
+    onSave(website.id, { name, url, category });
+  };
+
+  return (
+    <div className="bg-white border-2 border-blue-500 rounded-lg shadow-lg p-4 space-y-3">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        placeholder="Nombre del sitio"
+      />
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        placeholder="URL del sitio"
+      />
+      <select
+        value={category}
+        onChange={(e) => setCategory(e.target.value)}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+      >
+        <option value="INTERCERT">INTERCERT</option>
+        <option value="clientes">CLIENTES</option>
+      </select>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="flex items-center gap-1 text-gray-600 hover:text-gray-900 px-3 py-1 rounded-lg">
+          <X className="w-4 h-4" /> Cancelar
+        </button>
+        <button onClick={handleSave} className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">
+          <Save className="w-4 h-4" /> Guardar
+        </button>
       </div>
     </div>
   );
